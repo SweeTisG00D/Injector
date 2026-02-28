@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <TlHelp32.h>
 #include <Psapi.h>
+#include <Shlwapi.h>
 #include <malloc.h>
 #include <Tchar.h>
 
@@ -46,6 +47,19 @@ bool Injector::icompare(const std::wstring& a, const std::wstring& b) const
 
 // Check if a module is injected via process handle, and return the base address
 BYTE* Injector::GetModuleBaseAddress(HANDLE Process, const std::wstring& Path) {
+	// Canonicalize the search path so it can be compared reliably against
+	// the canonical paths returned by GetModuleFileNameExW.
+	WCHAR CanonicalPath[MAX_PATH];
+	std::wstring SearchPath = Path;
+	if (GetFullPathNameW(Path.c_str(), MAX_PATH, CanonicalPath, NULL))
+		SearchPath = CanonicalPath;
+
+	// Extract the filename portion for comparison against module base names
+	std::wstring FileName = SearchPath;
+	auto LastSep = FileName.rfind(L'\\');
+	if (LastSep != std::wstring::npos)
+		FileName = FileName.substr(LastSep + 1);
+
 	// Grab a new snapshot of the process
 	std::vector<HMODULE> Modules;
 	DWORD SizeNeeded = 0;
@@ -57,7 +71,6 @@ BYTE* Injector::GetModuleBaseAddress(HANDLE Process, const std::wstring& Path) {
 	} while (SizeNeeded > Modules.size() * sizeof(HMODULE));
 
 	// Get the HMODULE of the desired library
-	bool Found = false;
 	for (const auto &Module : Modules) 
 	{
 		WCHAR ModuleName[MAX_PATH];
@@ -68,8 +81,7 @@ BYTE* Injector::GetModuleBaseAddress(HANDLE Process, const std::wstring& Path) {
 		// The size of the ExePath buffer, in characters.
 		if (!GetModuleFileNameExW(Process, Module, ExePath, sizeof(ExePath) / sizeof(WCHAR)))
 			throw std::runtime_error("Could not get ExePath.");
-		Found = (icompare(ModuleName, Path) || icompare(ExePath, Path));
-		if (Found)
+		if (icompare(ModuleName, FileName) || icompare(ExePath, SearchPath))
 			return reinterpret_cast<BYTE*>(Module);
 	}
 	return nullptr;
@@ -236,42 +248,54 @@ void Injector::GetSeDebugPrivilege()
 		throw std::runtime_error("Could not adjust token privileges.");
 }
 
-// Get fully qualified path from module name. Assumes base directory is the
-// directory of the currently executing binary.
+// Resolve and validate a module path. Handles both relative and absolute paths.
+// Relative paths are resolved against the CWD first, then against the injector's
+// own directory as a fallback for backward compatibility.
 std::tstring Injector::GetPath( const std::tstring& ModuleName )
 {
-	// Get handle to self
-	HMODULE Self = GetModuleHandle(NULL);
+	TCHAR FullPath[MAX_PATH];
 
-	// Get path to loader
-	std::vector<TCHAR> LoaderPath(MAX_PATH);
-	if (!GetModuleFileName(Self,&LoaderPath[0],static_cast<DWORD>(LoaderPath.size())) || 
-		GetLastError() == ERROR_INSUFFICIENT_BUFFER)
-		throw std::runtime_error("Could not get path to loader.");
-
-	// Convert path to loader to path to module
-	std::tstring ModulePath(&LoaderPath[0]);
-	ModulePath = ModulePath.substr(0, ModulePath.rfind( _T("\\") ) + 1);
-	ModulePath.append(ModuleName);
-
-	TCHAR FullModulePath[MAX_PATH];
-	if (!GetFullPathName(ModulePath.c_str(), sizeof(FullModulePath) / sizeof(TCHAR), FullModulePath, NULL))
+	// First: canonicalize the input as-is. For absolute paths this normalizes
+	// separators and resolves . / .. components. For relative paths this
+	// resolves against the current working directory.
+	if (!GetFullPathName(ModuleName.c_str(), MAX_PATH, FullPath, NULL))
 		throw std::runtime_error("Could not get full path to module.");
-	ModulePath = std::tstring(&FullModulePath[0]);
 
-	// Check path/file is valid
-	if (GetFileAttributes(ModulePath.c_str()) == INVALID_FILE_ATTRIBUTES)
+	std::tstring ModulePath(FullPath);
+
+	if (GetFileAttributes(ModulePath.c_str()) != INVALID_FILE_ATTRIBUTES)
+		return ModulePath;
+
+	// If the file wasn't found and the original input was relative, try
+	// resolving it relative to the injector executable's directory.
+	if (PathIsRelative(ModuleName.c_str()))
 	{
-#ifdef _UNICODE
-		std::string NarrowModulePath(ConvertWideToANSI(ModulePath));
-#else
-		std::string NarrowModulePath(ModulePath.begin(), ModulePath.end());
-#endif
-		throw std::runtime_error("Could not find module. Path: '" + NarrowModulePath + "'.");
+		std::vector<TCHAR> LoaderPath(MAX_PATH);
+		const DWORD LoaderPathLen = GetModuleFileName(NULL, &LoaderPath[0], static_cast<DWORD>(LoaderPath.size()));
+		if (LoaderPathLen == 0)
+			throw std::runtime_error("Could not get path to loader.");
+		if (LoaderPathLen >= static_cast<DWORD>(LoaderPath.size()))
+			throw std::runtime_error("Path to loader exceeds MAX_PATH and was truncated.");
+
+		std::tstring LoaderDir(&LoaderPath[0]);
+		LoaderDir = LoaderDir.substr(0, LoaderDir.rfind(_T("\\")) + 1);
+		LoaderDir.append(ModuleName);
+
+		if (!GetFullPathName(LoaderDir.c_str(), MAX_PATH, FullPath, NULL))
+			throw std::runtime_error("Could not get full path to module.");
+
+		ModulePath = std::tstring(FullPath);
+
+		if (GetFileAttributes(ModulePath.c_str()) != INVALID_FILE_ATTRIBUTES)
+			return ModulePath;
 	}
 
-	// Return module path
-	return ModulePath;
+#ifdef _UNICODE
+	std::string NarrowModulePath(ConvertWideToANSI(ModulePath));
+#else
+	std::string NarrowModulePath(ModulePath.begin(), ModulePath.end());
+#endif
+	throw std::runtime_error("Could not find module. Path: '" + NarrowModulePath + "'.");
 }
 
 // Get process ID via name
