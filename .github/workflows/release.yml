@@ -24,6 +24,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install vpatch
+        shell: pwsh
+        run: |
+          dotnet tool install --global Nefarius.Tools.Vpatch
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Stamp version in resource file
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart("v")
+          $versionParts = $tagVersion.Split(".")
+          if ($versionParts.Count -eq 3) {
+            $tagVersion = "$tagVersion.0"
+          }
+          elseif ($versionParts.Count -ne 4) {
+            throw "Unsupported tag version format '$tagVersion'. Expected 3 or 4 numeric segments."
+          }
+
+          vpatch --stamp-version "$tagVersion" --target-file "Injector/Injector.rc" --resource.file-version --resource.product-version
+
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
