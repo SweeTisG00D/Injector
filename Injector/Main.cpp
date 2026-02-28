@@ -164,10 +164,11 @@ int main(int, char* argv[])
         {
             for (auto& mod : modules)
             {
-                ModulePath = Injector::Get()->GetPath(mod);
-
-                // Eject module
-                Injector::Get()->EjectLib(ProcID, ModulePath);
+                // No file-existence check: the module is already loaded in the
+                // target process and may no longer exist on disk.  EjectLib uses
+                // GetModuleBaseAddress which canonicalizes the path and matches
+                // against both the module basename and full path.
+                Injector::Get()->EjectLib(ProcID, mod);
                 // If we get to this point then no exceptions have been thrown so we
                 // assume success.
                 std::tcout << "Successfully ejected module!" << std::endl;
