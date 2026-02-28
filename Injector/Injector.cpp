@@ -271,9 +271,11 @@ std::tstring Injector::GetPath( const std::tstring& ModuleName )
 	if (PathIsRelative(ModuleName.c_str()))
 	{
 		std::vector<TCHAR> LoaderPath(MAX_PATH);
-		if (!GetModuleFileName(NULL, &LoaderPath[0], static_cast<DWORD>(LoaderPath.size())) ||
-			GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+		const DWORD LoaderPathLen = GetModuleFileName(NULL, &LoaderPath[0], static_cast<DWORD>(LoaderPath.size()));
+		if (LoaderPathLen == 0)
 			throw std::runtime_error("Could not get path to loader.");
+		if (LoaderPathLen >= static_cast<DWORD>(LoaderPath.size()))
+			throw std::runtime_error("Path to loader exceeds MAX_PATH and was truncated.");
 
 		std::tstring LoaderDir(&LoaderPath[0]);
 		LoaderDir = LoaderDir.substr(0, LoaderDir.rfind(_T("\\")) + 1);
