@@ -77,7 +77,7 @@ jobs:
         shell: pwsh
         run: |
           $releaseRoot = Join-Path "${{ github.workspace }}" "release-content"
-          $zipPath = Join-Path "${{ github.workspace }}" "Injector_x86_amd64_arm64.zip"
+          $zipPath = Join-Path "${{ github.workspace }}" "Injector_x86_amd64_arm64_unsigned.zip"
 
           if (Test-Path $releaseRoot) {
             Remove-Item -Path $releaseRoot -Recurse -Force
@@ -97,8 +97,22 @@ jobs:
 
           Compress-Archive -Path (Join-Path $releaseRoot "*") -DestinationPath $zipPath
 
-      - name: Publish release
+      - name: Upload unsigned release bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-release-bundle-${{ github.ref_name }}
+          path: Injector_x86_amd64_arm64_unsigned.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create draft release awaiting EV signing
         uses: softprops/action-gh-release@v2
         with:
-          files: Injector_x86_amd64_arm64.zip
+          draft: true
+          body: |
+            Release draft created automatically.
+            Final asset must be EV-signed on the maintainer local machine.
+
+            Expected final asset name:
+            - Injector_x86_amd64_arm64.zip
           generate_release_notes: true
