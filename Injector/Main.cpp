@@ -9,7 +9,6 @@
 #include <Windows.h>
 #include <tchar.h>
 #include <TlHelp32.h>
-#include <Shlwapi.h>
 
 // C++ Standard Library
 #include <iostream>
@@ -33,7 +32,7 @@ int main(int, char* argv[])
         SehGuard Guard;
 
         // Injector version number
-        const std::tstring VerNum(_T("20240218"));
+        const std::tstring VerNum(_T("20260228"));
 
         // Version and copyright output
 #ifdef _WIN64
@@ -41,7 +40,7 @@ int main(int, char* argv[])
 #else
         std::tcout << _T("Injector x86 [Version ") << VerNum << _T("]") << std::endl;
 #endif
-        std::tcout << _T("Copyright (c) 2009 Cypher, 2012-2024 Nefarius. All rights reserved.") << std::endl << std::endl;
+        std::tcout << _T("Copyright (c) 2009 Cypher, 2012-2026 Nefarius. All rights reserved.") << std::endl << std::endl;
 
         argh::parser cmdl;
 
@@ -150,14 +149,7 @@ int main(int, char* argv[])
         {
             for (auto& mod : modules)
             {
-                if (PathIsRelative(mod.c_str()))
-                {
-                    ModulePath = Injector::Get()->GetPath(mod);
-                }
-                else
-                {
-                    ModulePath = mod;
-                }
+                ModulePath = Injector::Get()->GetPath(mod);
 
                 // Inject module
                 Injector::Get()->InjectLib(ProcID, ModulePath);
@@ -172,14 +164,7 @@ int main(int, char* argv[])
         {
             for (auto& mod : modules)
             {
-                if (PathIsRelative(mod.c_str()))
-                {
-                    ModulePath = Injector::Get()->GetPath(mod);
-                }
-                else
-                {
-                    ModulePath = mod;
-                }
+                ModulePath = Injector::Get()->GetPath(mod);
 
                 // Eject module
                 Injector::Get()->EjectLib(ProcID, ModulePath);
