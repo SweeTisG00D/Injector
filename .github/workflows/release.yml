@@ -35,7 +35,7 @@ jobs:
         run: |
           $source = Join-Path "${{ github.workspace }}" "bin/${{ matrix.platform }}/Injector.exe"
           if (!(Test-Path $source)) {
-            Write-Error "Expected binary not found: $source"
+            throw "Expected binary not found: $source"
           }
 
           $targetDir = Join-Path "${{ github.workspace }}" "artifacts/${{ matrix.platform }}"
