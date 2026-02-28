@@ -42,6 +42,13 @@ jobs:
             throw "Unsupported tag version format '$tagVersion'. Expected 3 or 4 numeric segments."
           }
 
+          $versionParts = $tagVersion.Split(".")
+          foreach ($part in $versionParts) {
+            if ($part -notmatch '^\d+$') {
+              throw "Unsupported tag version '$tagVersion'. Each segment in versionParts must be numeric before calling vpatch."
+            }
+          }
+
           vpatch --stamp-version "$tagVersion" --target-file "Injector/Injector.rc" --resource.file-version --resource.product-version
 
       - name: Add MSBuild to PATH
