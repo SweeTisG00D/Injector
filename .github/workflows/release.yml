@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  SOLUTION_FILE_PATH: Injector.sln
+  BUILD_CONFIGURATION: Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [Win32, x64, ARM64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build
+        run: msbuild /m /p:Configuration="${{ env.BUILD_CONFIGURATION }}" /p:Platform=${{ matrix.platform }} ${{ env.SOLUTION_FILE_PATH }}
+
+      - name: Stage binary artifact
+        shell: pwsh
+        run: |
+          $source = Join-Path "${{ github.workspace }}" "bin/${{ matrix.platform }}/Injector.exe"
+          if (!(Test-Path $source)) {
+            Write-Error "Expected binary not found: $source"
+          }
+
+          $targetDir = Join-Path "${{ github.workspace }}" "artifacts/${{ matrix.platform }}"
+          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+          Copy-Item -Path $source -Destination (Join-Path $targetDir "Injector.exe") -Force
+
+      - name: Upload platform artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Injector-${{ matrix.platform }}
+          path: artifacts/${{ matrix.platform }}/Injector.exe
+          if-no-files-found: error
+          retention-days: 1
+
+  package-and-release:
+    runs-on: windows-latest
+    needs: build
+
+    steps:
+      - name: Download Win32 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Injector-Win32
+          path: downloaded/Win32
+
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Injector-x64
+          path: downloaded/x64
+
+      - name: Download ARM64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Injector-ARM64
+          path: downloaded/ARM64
+
+      - name: Assemble zip structure
+        shell: pwsh
+        run: |
+          $releaseRoot = Join-Path "${{ github.workspace }}" "release-content"
+          $zipPath = Join-Path "${{ github.workspace }}" "Injector_x86_amd64_arm64.zip"
+
+          if (Test-Path $releaseRoot) {
+            Remove-Item -Path $releaseRoot -Recurse -Force
+          }
+          if (Test-Path $zipPath) {
+            Remove-Item -Path $zipPath -Force
+          }
+
+          $arm64Dir = Join-Path $releaseRoot "ARM64"
+          $win32Dir = Join-Path $releaseRoot "Win32"
+          $x64Dir = Join-Path $releaseRoot "x64"
+          New-Item -ItemType Directory -Force -Path $arm64Dir, $win32Dir, $x64Dir | Out-Null
+
+          Copy-Item -Path "downloaded/ARM64/Injector.exe" -Destination (Join-Path $arm64Dir "Injector.exe") -Force
+          Copy-Item -Path "downloaded/Win32/Injector.exe" -Destination (Join-Path $win32Dir "Injector.exe") -Force
+          Copy-Item -Path "downloaded/x64/Injector.exe" -Destination (Join-Path $x64Dir "Injector.exe") -Force
+
+          Compress-Archive -Path (Join-Path $releaseRoot "*") -DestinationPath $zipPath
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Injector_x86_amd64_arm64.zip
+          generate_release_notes: true
